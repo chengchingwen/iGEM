@@ -1,6 +1,9 @@
 import requests as rq
 from bs4 import BeautifulSoup as bs
 import sqlite3 as sql
+import gevent
+from gevent import monkey
+
 
 
 uniport = "http://www.uniprot.org/uniprot/"
@@ -96,6 +99,23 @@ def ara_seq(soup):
     seq = "".join([s for s in source])
     return seq
 
+def get_uni_seq(http):
+    http+='.fasta'
+    succeed = None
+    while not succeed:
+        try:
+            response = rq.get(http)
+        except:
+            pass
+        else:
+            succeed = True
+    else:
+        response.close()
+
+    html = response.text
+    seq = "".join([i for i in html if i.isprintable()])
+    return seq
+
 def get_info(ID):
     info = {
         "uni-protein":"" ,
@@ -106,6 +126,7 @@ def get_info(ID):
         "uni-signal-peptide":False,
         "uni-propetide":False,
         "uni-disulfide-bond":0,
+        "uni-seq":"",
         }
     http = uniport + ID
     succeed = None
@@ -125,7 +146,7 @@ def get_info(ID):
     info['uni-function'] = get_uni_func(soup)
     info['uni-amino-acid-len'] = get_uni_AClen(soup)
     info["uni-signal-peptide"], info["uni-propetide"], info["uni-disulfide-bond"] = get_feature(soup)
-
+    info["uni-seq"] = get_uni_seq(http)
     ara_url, info['ara-id'] = link_to_ara(soup)
     if ara_url:
         ara_succeed = None
@@ -156,7 +177,7 @@ def get_info(ID):
                 info[tag] = ",".join(info[tag])
 
         
-    return info
+    return info, ID
 
 def try_info(ID):
     try:
@@ -165,8 +186,9 @@ def try_info(ID):
         print(ID, e)
 
 if __name__ == '__main__':
-    TABLE = "'ara-PD50', 'uni-amino-acid-len', 'ara-LD50', 'uni-organism', 'ara-Qualitative Information','uni-propetide', 'ara_sequence', 'uni-function', 'uni-signal-peptide', 'ara-Taxon', 'uni-protein','ara_target', 'ara-ED50', 'uni-disulfide-bond', 'ara-id'"
-    mydb = sql.connect("crawler.db")
+    monkey.patch_all()
+    TABLE = "'entry', 'ara-PD50', 'uni-seq', 'uni-amino-acid-len', 'ara-LD50', 'uni-organism', 'ara-Qualitative Information','uni-propetide', 'ara_sequence', 'uni-function', 'uni-signal-peptide', 'ara-Taxon', 'uni-protein','ara_target', 'ara-ED50', 'uni-disulfide-bond', 'ara-id'"
+    mydb = sql.connect("new_crawler.db")
     c = mydb.cursor()
     c.execute('create table mydb ('+TABLE+')') 
 
@@ -174,20 +196,28 @@ if __name__ == '__main__':
         try:
             ctitle = []
             ccontent = []
-            for item in info.items():
+            for item in info[0].items():
                 ctitle.append(str(item[0]))
                 ccontent.append(str(item[1]))
-    
+            
+            ctitle = ['entry'] + ctitle
+            ccontent = [info[1]] + ccontent
             title = '("'+'", "'.join(ctitle)+'")'
             content = '("'+'", "'.join(ccontent)+'")'
             c.execute('insert into mydb ' + title + ' values ' + content)
             mydb.commit()
         except Exception as e:
             print(title, content, e)
+    
+    def work(ID):
+        info2db(get_info(ID))
 
+    jobs = [gevent.spawn(work, ID) for ID in result_list]
+    gevent.joinall(jobs)
+    '''
     for ID in result_list:
         info = get_info(ID)
         info2db(info)
-
-
+    '''
+    c.close()
     mydb.close()
