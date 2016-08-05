@@ -78,6 +78,31 @@ def ara_target(soup):
 
     return target
 
+def blast_info(soup):
+    ctable = soup.find(class_="featureTable" , id="peptides_section").contents[-1]
+    pro = ctable['id']
+    pos = ctable.find(class_="numeric").text
+    return pos, pro
+
+
+def blast_query(ID, pos, pro):
+    blast = "http://www.uniprot.org/blast/?about=%s[%s]&key=Chain&id=%s" % (ID, pos, pro)
+    succeed = None
+    while not succeed:
+        try:
+            response = rq.get(blast)
+        except:
+            pass
+        else:
+            succeed = True
+    else:
+        response.close()
+
+    html = response.text
+    soup = bs(html, "lxml")
+    chain = soup.find(id="blastQuery").text
+    return chain
+
 def ara_taxon(soup):
     ctable = soup.find("table", cellpadding="0",cellspacing="0",style="width: 650px",id="cardtable")
     tags = []
@@ -112,9 +137,8 @@ def get_uni_seq(http):
     else:
         response.close()
 
-    html = response.text
-    seq = "".join([i for i in html if i.isprintable()])
-    return seq
+    html = response.text   
+    return html
 
 def get_info(ID):
     info = {
@@ -127,6 +151,7 @@ def get_info(ID):
         "uni-propetide":False,
         "uni-disulfide-bond":0,
         "uni-seq":"",
+        "chain":"",
         }
     http = uniport + ID
     succeed = None
@@ -148,8 +173,13 @@ def get_info(ID):
     info["uni-signal-peptide"], info["uni-propetide"], info["uni-disulfide-bond"] = get_feature(soup)
     info["uni-seq"] = get_uni_seq(http)
     ara_url, info['ara-id'] = link_to_ara(soup)
+
+    if info["uni-signal-peptide"] or info["uni-propetide"]:
+        info["chain"] = blast_query(ID , *blast_info(soup))
+    
     if ara_url:
         ara_succeed = None
+
         while not ara_succeed:
             try:
                 ara_response = rq.get(ara_url)
@@ -159,7 +189,7 @@ def get_info(ID):
                 ara_succeed = True
         else:
             ara_response.close()
-        
+
         ara_html = ara_response.text
         ara_soup = bs(ara_html, "lxml")
         taxon = ara_taxon(ara_soup)
@@ -176,7 +206,6 @@ def get_info(ID):
             if type(info[tag]) == list:
                 info[tag] = ",".join(info[tag])
 
-        
     return info, ID
 
 def try_info(ID):
@@ -187,7 +216,7 @@ def try_info(ID):
 
 if __name__ == '__main__':
     monkey.patch_all()
-    TABLE = "'entry', 'ara-PD50', 'uni-seq', 'uni-amino-acid-len', 'ara-LD50', 'uni-organism', 'ara-Qualitative Information','uni-propetide', 'ara_sequence', 'uni-function', 'uni-signal-peptide', 'ara-Taxon', 'uni-protein','ara_target', 'ara-ED50', 'uni-disulfide-bond', 'ara-id'"
+    TABLE = "'entry', 'ara-PD50', 'chain', 'uni-seq', 'uni-amino-acid-len', 'ara-LD50', 'uni-organism', 'ara-Qualitative Information','uni-propetide', 'ara_sequence', 'uni-function', 'uni-signal-peptide', 'ara-Taxon', 'uni-protein','ara_target', 'ara-ED50', 'uni-disulfide-bond', 'ara-id'"
     mydb = sql.connect("new_crawler.db")
     c = mydb.cursor()
     c.execute('create table mydb ('+TABLE+')') 
